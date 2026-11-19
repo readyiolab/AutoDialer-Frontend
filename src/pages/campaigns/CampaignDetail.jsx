@@ -27,6 +27,7 @@ import {
   UserPlus,
   ArrowRightLeft,
 } from 'lucide-react';
+import { CampaignRoundsPanel } from './CampaignRoundsPanel';
 
 export const CampaignDetail = () => {
   const { id } = useParams();
@@ -242,6 +243,11 @@ export const CampaignDetail = () => {
           )}
         </div>
       )}
+
+      <CampaignRoundsPanel
+        campaignId={id}
+        telecallers={campaign.assignments || []}
+      />
 
       {stats && (
         <div>

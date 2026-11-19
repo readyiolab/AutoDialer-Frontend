@@ -29,3 +29,24 @@ export const pauseCampaign = (id) =>
 
 export const resumeCampaign = (id) =>
   api.patch(`/campaigns/${id}/resume`);
+
+export const listCampaignRounds = (campaignId) =>
+  api.get(`/campaigns/${campaignId}/rounds`);
+
+export const getCampaignRound = (campaignId, roundId) =>
+  api.get(`/campaigns/${campaignId}/rounds/${roundId}`);
+
+export const getCampaignRoundAnalytics = (campaignId, roundId) =>
+  api.get(`/campaigns/${campaignId}/rounds/${roundId}/analytics`);
+
+export const previewNextRound = (campaignId, data) =>
+  api.post(`/campaigns/${campaignId}/rounds/preview`, data);
+
+export const createNextRound = (campaignId, data) =>
+  api.post(`/campaigns/${campaignId}/rounds`, data);
+
+export const allocateRound = (campaignId, roundId, data) =>
+  api.post(`/campaigns/${campaignId}/rounds/${roundId}/allocate`, data);
+
+export const completeRound = (campaignId, roundId) =>
+  api.post(`/campaigns/${campaignId}/rounds/${roundId}/complete`);

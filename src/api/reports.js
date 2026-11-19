@@ -18,6 +18,9 @@ export const getEmployeeLeads = (userId, params) =>
 export const getCampaignMIS = (params) =>
   api.get('/reports/campaign', { params });
 
+export const getCampaignRoundsComparison = (campaignId) =>
+  api.get(`/reports/campaign/${campaignId}/rounds`);
+
 export const getFollowUpMIS = (params) =>
   api.get('/reports/followup', { params });
 
