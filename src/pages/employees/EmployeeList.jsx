@@ -24,6 +24,8 @@ const emptyForm = {
   employeeId: '',
   dailyTarget: 100,
   shareLink: '',
+  panNumber: '',
+  aadhaarNumber: '',
   sendInvitation: true,
 };
 
@@ -44,6 +46,17 @@ export const EmployeeList = () => {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState(emptyForm);
+
+  const inviteRoles = useMemo(
+    () => roles.filter((r) => r.name !== 'SUPER_ADMIN'),
+    [roles],
+  );
+
+  const selectedRole = useMemo(
+    () => inviteRoles.find((r) => r.id === form.roleId) || roles.find((r) => r.id === form.roleId),
+    [inviteRoles, roles, form.roleId],
+  );
+  const isTelecaller = selectedRole?.name === 'TELECALLER';
 
   const load = async () => {
     setLoading(true);
@@ -81,6 +94,18 @@ export const EmployeeList = () => {
       setError('Select a role');
       return;
     }
+    if (isTelecaller) {
+      const pan = form.panNumber.trim().toUpperCase();
+      const aadhaar = form.aadhaarNumber.replace(/\D/g, '');
+      if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+        setError('Enter a valid PAN (e.g. ABCDE1234F)');
+        return;
+      }
+      if (!/^\d{12}$/.test(aadhaar)) {
+        setError('Enter a valid 12-digit Aadhaar number');
+        return;
+      }
+    }
     setSaving(true);
     try {
       await createUser({
@@ -89,6 +114,8 @@ export const EmployeeList = () => {
         phone: normalizeIndianMobile(form.phone),
         employeeId: form.employeeId || undefined,
         shareLink: form.shareLink?.trim() || undefined,
+        panNumber: isTelecaller ? form.panNumber.trim().toUpperCase() : undefined,
+        aadhaarNumber: isTelecaller ? form.aadhaarNumber.replace(/\D/g, '') : undefined,
       });
       setOpen(false);
       setForm(emptyForm);
@@ -157,6 +184,19 @@ export const EmployeeList = () => {
             </a>
           ) : (
             <span className="text-slate-400 text-xs">Not set</span>
+          ),
+      },
+      {
+        key: 'kyc',
+        label: 'PAN / Aadhaar',
+        render: (u) =>
+          u.role?.name === 'TELECALLER' || u.panNumber || u.aadhaarNumber ? (
+            <div className="text-xs text-slate-700 space-y-0.5 tabular-nums">
+              <div>PAN: {u.panNumber || '—'}</div>
+              <div>Aadhaar: {u.aadhaarNumber || '—'}</div>
+            </div>
+          ) : (
+            <span className="text-slate-400 text-xs">—</span>
           ),
       },
       {
@@ -353,13 +393,46 @@ export const EmployeeList = () => {
               required
             >
               <option value="">Select role</option>
-              {roles.map((r) => (
+              {inviteRoles.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.displayName || r.name}
                 </option>
               ))}
             </select>
           </div>
+          {isTelecaller && (
+            <>
+              <div>
+                <label className="crm-label">
+                  PAN <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  className="crm-input uppercase"
+                  value={form.panNumber}
+                  onChange={(e) => setForm({ ...form, panNumber: e.target.value.toUpperCase() })}
+                  required
+                  maxLength={10}
+                  placeholder="ABCDE1234F"
+                />
+              </div>
+              <div>
+                <label className="crm-label">
+                  Aadhaar <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  className="crm-input"
+                  value={form.aadhaarNumber}
+                  onChange={(e) =>
+                    setForm({ ...form, aadhaarNumber: e.target.value.replace(/\D/g, '').slice(0, 12) })
+                  }
+                  required
+                  maxLength={12}
+                  inputMode="numeric"
+                  placeholder="12-digit Aadhaar"
+                />
+              </div>
+            </>
+          )}
           <label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
             <input
               type="checkbox"
