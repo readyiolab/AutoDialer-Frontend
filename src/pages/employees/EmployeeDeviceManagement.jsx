@@ -37,9 +37,14 @@ export const EmployeeDeviceManagement = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await listDevices(filterUserId ? { userId: filterUserId } : undefined);
+      const res = await listDevices({
+        ...(filterUserId ? { userId: filterUserId } : {}),
+        page: 1,
+        pageSize: 100,
+      });
       const payload = res.data?.data || res.data || [];
-      setRows(Array.isArray(payload) ? payload : []);
+      const rowsPayload = Array.isArray(payload) ? payload : payload.data || [];
+      setRows(Array.isArray(rowsPayload) ? rowsPayload : []);
       setError('');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load devices');

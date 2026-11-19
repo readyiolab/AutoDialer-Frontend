@@ -131,7 +131,10 @@ export const LeadAllocation = () => {
     }
 
     const teamsPayload = tRes.data?.data || tRes.data;
-    setTeams(Array.isArray(teamsPayload) ? teamsPayload : []);
+    const teamsList = Array.isArray(teamsPayload)
+      ? teamsPayload
+      : teamsPayload?.data || [];
+    setTeams(Array.isArray(teamsList) ? teamsList : []);
 
     const rolesPayload = rolesRes.data?.data || rolesRes.data;
     const roles = Array.isArray(rolesPayload) ? rolesPayload : rolesPayload?.data || [];
