@@ -46,6 +46,7 @@ export const LeadAllocation = () => {
   const [campaignTeam, setCampaignTeam] = useState([]);
   const [teams, setTeams] = useState([]);
   const [unassigned, setUnassigned] = useState([]);
+  const [unassignedTotal, setUnassignedTotal] = useState(0);
   const [selectedUsers, setSelectedUsers] = useState([]);
   const [campaignId, setCampaignId] = useState(searchParams.get('campaignId') || '');
   const [teamId, setTeamId] = useState('');
@@ -58,6 +59,7 @@ export const LeadAllocation = () => {
   const [transferLeadsList, setTransferLeadsList] = useState([]);
   const [selectedLeads, setSelectedLeads] = useState([]);
   const [targetCounts, setTargetCounts] = useState({});
+  const [countsManual, setCountsManual] = useState(false);
   const [preview, setPreview] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -87,26 +89,49 @@ export const LeadAllocation = () => {
     return allTelecallers;
   }, [campaignId, campaignTeam, allTelecallers]);
 
+  const extractTotal = (payload, fallbackLen) => {
+    const n = payload?.total ?? payload?.meta?.total ?? payload?.totalCount;
+    const parsed = Number(n);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    return fallbackLen;
+  };
+
   const load = async () => {
+    setError('');
     const leadQuery = isTransfer
       ? {
-          pageSize: 200,
+          pageSize: 100,
           campaignId: campaignId || undefined,
           assignedToId: fromUserId || undefined,
         }
       : {
-          pageSize: 200,
+          pageSize: 100,
           assignedToId: 'null',
           campaignId: campaignId || undefined,
         };
 
+    let usersFailed = false;
+    let leadsFailed = false;
+
     const [cRes, uRes, lRes, tRes, rolesRes] = await Promise.all([
       getCampaigns().catch(() => ({ data: [] })),
-      getUsers({ pageSize: 200, status: 'ACTIVE' }).catch(() => ({ data: { data: [] } })),
-      getLeads(leadQuery).catch(() => getLeads({ pageSize: 200 })),
+      getUsers({ pageSize: 200, status: 'ACTIVE' }).catch(() => {
+        usersFailed = true;
+        return { data: { data: [] } };
+      }),
+      getLeads(leadQuery).catch(() => {
+        leadsFailed = true;
+        return { data: { data: [], meta: { total: 0 } } };
+      }),
       getTeams().catch(() => ({ data: [] })),
       api.get('/settings/roles').catch(() => ({ data: [] })),
     ]);
+
+    if (usersFailed) {
+      setError('Could not load telecallers. Refresh and try again.');
+    } else if (leadsFailed) {
+      setError('Could not load leads for this campaign. Refresh and try again.');
+    }
 
     const campaignsPayload = cRes.data?.data || cRes.data;
     setCampaigns(campaignsPayload.data || campaignsPayload || []);
@@ -125,8 +150,11 @@ export const LeadAllocation = () => {
         : assigned;
       setTransferLeadsList(filtered);
       setUnassigned([]);
+      setUnassignedTotal(0);
     } else {
-      setUnassigned(leads.filter((l) => !l.assignedToId));
+      const list = leads.filter((l) => !l.assignedToId);
+      setUnassigned(list);
+      setUnassignedTotal(extractTotal(leadsPayload, list.length));
       setTransferLeadsList([]);
     }
 
@@ -157,8 +185,9 @@ export const LeadAllocation = () => {
             role: u.role || { name: 'TELECALLER' },
           }));
         setCampaignTeam(team);
-      } catch {
+      } catch (err) {
         setCampaignTeam([]);
+        setError(err.response?.data?.message || 'Could not load campaign telecallers');
       }
     } else {
       setCampaignTeam([]);
@@ -166,12 +195,20 @@ export const LeadAllocation = () => {
   };
 
   useEffect(() => {
-    load().catch(() => {});
+    load().catch((err) => {
+      setError(err.response?.data?.message || err.message || 'Failed to load allocation data');
+    });
     setSelectedUsers([]);
     setSelectedLeads([]);
     setPreview(null);
+    setCountsManual(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, isTransfer, fromUserId]);
+
+  const allocatingAllUnassigned = !isTransfer && selectedLeads.length === 0;
+  const distributeTotal = allocatingAllUnassigned
+    ? unassignedTotal || unassigned.length
+    : selectedLeads.length;
 
   const leadPool = useMemo(
     () => (selectedLeads.length ? unassigned.filter((l) => selectedLeads.includes(l.id)) : unassigned),
@@ -179,11 +216,11 @@ export const LeadAllocation = () => {
   );
 
   const equalSplitHint = useMemo(() => {
-    if (!selectedUsers.length || !leadPool.length) return null;
-    const base = Math.floor(leadPool.length / selectedUsers.length);
-    const rem = leadPool.length % selectedUsers.length;
-    return { base, rem, total: leadPool.length };
-  }, [selectedUsers, leadPool]);
+    if (!selectedUsers.length || !distributeTotal) return null;
+    const base = Math.floor(distributeTotal / selectedUsers.length);
+    const rem = distributeTotal % selectedUsers.length;
+    return { base, rem, total: distributeTotal };
+  }, [selectedUsers, distributeTotal]);
 
   const toggleUser = (id) => {
     setSelectedUsers((prev) => {
@@ -191,36 +228,60 @@ export const LeadAllocation = () => {
       return next;
     });
     setPreview(null);
+    setCountsManual(false);
+  };
+
+  /** Check = assign to campaign (if needed) + select for distribute */
+  const toggleCompanyTelecaller = async (userId) => {
+    if (selectedUsers.includes(userId)) {
+      toggleUser(userId);
+      return;
+    }
+    if (campaignId && !campaignTeam.some((u) => u.id === userId)) {
+      await addExistingToCampaign(userId);
+      return;
+    }
+    toggleUser(userId);
   };
 
   useEffect(() => {
-    if (!selectedUsers.length || !leadPool.length) {
-      setTargetCounts({});
+    // Only auto-fill per-user counts when user selected a subset of leads (manual counts).
+    // Allocate-all Equal omits targetCounts so backend spreads every unassigned lead.
+    if (!selectedUsers.length || allocatingAllUnassigned || !distributeTotal) {
+      if (!countsManual) setTargetCounts({});
       return;
     }
-    const base = Math.floor(leadPool.length / selectedUsers.length);
-    const rem = leadPool.length % selectedUsers.length;
+    if (countsManual) return;
+    const base = Math.floor(distributeTotal / selectedUsers.length);
+    const rem = distributeTotal % selectedUsers.length;
     const next = {};
     selectedUsers.forEach((id, idx) => {
       next[id] = base + (idx < rem ? 1 : 0);
     });
     setTargetCounts(next);
-  }, [selectedUsers, leadPool.length]);
+  }, [selectedUsers, distributeTotal, allocatingAllUnassigned, countsManual]);
 
   const countsSum = Object.values(targetCounts).reduce((s, n) => s + Number(n || 0), 0);
 
-  const buildPayload = () => ({
-    method,
-    campaignId: campaignId || undefined,
-    teamId: teamId || undefined,
-    userIds: selectedUsers.length ? selectedUsers : undefined,
-    leadIds: selectedLeads.length ? selectedLeads : undefined,
-    onlyUnassigned: true,
-    maxPerUser: maxPerUser ? Number(maxPerUser) : undefined,
-    excludeOnBreak: true,
-    targetCounts:
-      selectedUsers.length && countsSum === leadPool.length ? targetCounts : undefined,
-  });
+  const buildPayload = () => {
+    const sendTargetCounts =
+      selectedUsers.length > 0 &&
+      !allocatingAllUnassigned &&
+      countsSum > 0 &&
+      countsSum === distributeTotal;
+
+    return {
+      method,
+      campaignId: campaignId || undefined,
+      teamId: teamId || undefined,
+      userIds: selectedUsers.length ? selectedUsers : undefined,
+      leadIds: selectedLeads.length ? selectedLeads : undefined,
+      onlyUnassigned: true,
+      maxPerUser: maxPerUser ? Number(maxPerUser) : undefined,
+      excludeOnBreak: true,
+      targetCounts: sendTargetCounts ? targetCounts : undefined,
+    };
+  };
 
   const assertCanDistribute = () => {
     if (!campaignId) {
@@ -647,22 +708,65 @@ export const LeadAllocation = () => {
                       <span className="text-slate-400">{u.phone || u.employeeId}</span>
                     </span>
                   </span>
-                  {selectedUsers.includes(u.id) && (
+                  {selectedUsers.includes(u.id) && !allocatingAllUnassigned && (
                     <input
                       type="number"
                       min={0}
                       className="w-16 border rounded-lg px-2 py-1 text-right shrink-0"
                       value={targetCounts[u.id] ?? 0}
-                      onChange={(e) =>
+                      onChange={(e) => {
+                        setCountsManual(true);
                         setTargetCounts((prev) => ({
                           ...prev,
                           [u.id]: Number(e.target.value || 0),
-                        }))
-                      }
+                        }));
+                      }}
                     />
                   )}
                 </label>
               ))}
+            </div>
+          ) : campaignId && companyOnlyTelecallers.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-600">
+                No one on this campaign yet. Check a telecaller to assign them and include them in
+                the distribute list.
+                {campaignId ? (
+                  <>
+                    {' '}
+                    <Link to={`/campaigns/${campaignId}`} className="font-semibold text-teal-700 underline">
+                      Edit full roster
+                    </Link>
+                  </>
+                ) : null}
+              </p>
+              <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                {companyOnlyTelecallers.map((u) => (
+                  <label
+                    key={u.id}
+                    className="flex items-center gap-2 text-xs border border-teal-200 bg-teal-50/40 rounded-xl p-3"
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={loading}
+                      checked={selectedUsers.includes(u.id)}
+                      onChange={() => toggleCompanyTelecaller(u.id)}
+                    />
+                    <span className="min-w-0">
+                      <span className="font-semibold block truncate">{u.name}</span>
+                      <span className="text-slate-400">{u.phone || u.employeeId}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={openAddTelecaller}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-teal-600 text-teal-700 rounded-xl text-xs font-bold"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                Create new telecaller
+              </button>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-teal-200 bg-teal-50/50 px-4 py-6 text-center space-y-3">
@@ -691,7 +795,7 @@ export const LeadAllocation = () => {
             </div>
           )}
 
-          {campaignId && companyOnlyTelecallers.length > 0 && (
+          {campaignId && campaignTeam.length > 0 && companyOnlyTelecallers.length > 0 && (
             <div className="pt-2 border-t border-slate-100 space-y-2">
               <p className="text-xs font-semibold text-slate-600">
                 Other telecallers in company — add to this campaign
@@ -720,13 +824,18 @@ export const LeadAllocation = () => {
             </div>
           )}
 
-          {selectedUsers.length > 0 && (
+          {selectedUsers.length > 0 && !allocatingAllUnassigned && (
             <p
               className={`text-xs font-semibold ${
-                countsSum === leadPool.length ? 'text-emerald-600' : 'text-amber-600'
+                countsSum === distributeTotal ? 'text-emerald-600' : 'text-amber-600'
               }`}
             >
-              Count sum {countsSum} / {leadPool.length} selected leads
+              Count sum {countsSum} / {distributeTotal} selected leads
+            </p>
+          )}
+          {selectedUsers.length > 0 && allocatingAllUnassigned && (
+            <p className="text-xs font-semibold text-emerald-600">
+              Equal / selected method will distribute all {distributeTotal} unassigned leads
             </p>
           )}
         </div>
@@ -738,7 +847,9 @@ export const LeadAllocation = () => {
             ? `Assigned leads (${transferLeadsList.length})${
                 fromUserId ? ' · filtered by From' : ''
               }`
-            : `Unassigned leads (${unassigned.length})`}
+            : unassignedTotal > unassigned.length
+              ? `Unassigned leads (showing ${unassigned.length} of ${unassignedTotal})`
+              : `Unassigned leads (${unassignedTotal || unassigned.length})`}
         </h3>
         <div className="max-h-48 overflow-y-auto space-y-1">
           {(isTransfer ? transferLeadsList : unassigned).map((l) => (
@@ -746,11 +857,12 @@ export const LeadAllocation = () => {
               <input
                 type="checkbox"
                 checked={selectedLeads.includes(l.id)}
-                onChange={() =>
+                onChange={() => {
+                  setCountsManual(false);
                   setSelectedLeads((prev) =>
                     prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id],
-                  )
-                }
+                  );
+                }}
               />
               <span className="min-w-0 truncate">
                 {l.customerName} · {l.mobileNumber}
@@ -776,7 +888,7 @@ export const LeadAllocation = () => {
             ? selectedLeads.length
               ? `${selectedLeads.length} selected for transfer (overrides count)`
               : 'Leave unchecked and use Move count, or select specific leads'
-            : `Leave unchecked to allocate all unassigned leads in scope (${leadPool.length})`}
+            : `Leave unchecked to allocate all ${distributeTotal} unassigned leads in scope`}
         </p>
       </div>
 
@@ -825,8 +937,8 @@ export const LeadAllocation = () => {
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] lg:left-[260px]">
           <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-slate-500 hidden sm:block">
-              {campaignTeam.length || selectedUsers.length
-                ? `${selectableUsers.length} telecaller(s) · ${leadPool.length} leads ready`
+              {campaignTeam.length || selectedUsers.length || companyOnlyTelecallers.length
+                ? `${Math.max(selectableUsers.length, selectedUsers.length)} telecaller(s) · ${distributeTotal} leads ready`
                 : 'Add a telecaller, then preview and allocate'}
             </p>
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
