@@ -48,7 +48,7 @@ export const CampaignDetail = () => {
       const [cRes, sRes, uRes] = await Promise.all([
         getCampaign(id),
         getCampaignStats(id),
-        getUsers({ pageSize: 200, status: 'ACTIVE' }).catch(() => ({ data: { data: [] } })),
+        getUsers({ pageSize: 100, status: 'ACTIVE' }).catch(() => ({ data: { data: [] } })),
       ]);
       const camp = cRes.data?.data || cRes.data;
       const st = sRes.data?.data || sRes.data;

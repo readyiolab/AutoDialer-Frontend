@@ -115,7 +115,7 @@ export const LeadAllocation = () => {
 
     const [cRes, uRes, lRes, tRes, rolesRes] = await Promise.all([
       getCampaigns().catch(() => ({ data: [] })),
-      getUsers({ pageSize: 200, status: 'ACTIVE' }).catch(() => {
+      getUsers({ pageSize: 100, status: 'ACTIVE' }).catch(() => {
         usersFailed = true;
         return { data: { data: [] } };
       }),
