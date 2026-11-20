@@ -94,15 +94,65 @@ export const ExcelUpload = () => {
     }
   };
 
+  const mappingReady = Boolean(mapping.customerName && mapping.mobileNumber);
+
+  const uploadWithMapping = async () => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('campaignId', campaignId);
+    fd.append('columnMapping', JSON.stringify(mapping));
+    const res = await importExcel(fd);
+    const payload = res.data?.data || res.data;
+    setPreview(payload);
+    setImportId(payload.importHistoryId || null);
+    if (payload.suggestedMapping) {
+      setMapping((prev) => ({ ...prev, ...payload.suggestedMapping }));
+    }
+    return payload;
+  };
+
   const confirm = async () => {
-    if (!importId) return;
+    setError('');
+    if (!campaignId) {
+      setError('Select a campaign before confirming');
+      return;
+    }
+    if (!mappingReady) {
+      setError('Map customerName and mobileNumber (e.g. Name + Contact No.) before confirming');
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await confirmImport(importId, mapping);
+      let id = importId;
+      if (!id) {
+        if (!file) {
+          setError('Upload the file again, map columns, then confirm');
+          return;
+        }
+        const staged = await uploadWithMapping();
+        id = staged.importHistoryId || null;
+        if (!id) {
+          if (staged.needsMapping) {
+            setError('Column mapping is still incomplete. Map Name and Contact No., then confirm again.');
+          } else {
+            setError('Could not stage import. Try Upload & preview again, then Confirm.');
+          }
+          return;
+        }
+      }
+
+      const res = await confirmImport(id, mapping);
       const payload = res.data?.data || res.data;
+      const finalId = payload.importHistoryId || id;
       if (payload.importHistoryId) setImportId(payload.importHistoryId);
-      const st = await getImportStatus(payload.importHistoryId || importId);
+      const st = await getImportStatus(finalId);
       setStatus(st.data?.data || st.data);
+      const hist = await getImportHistory().catch(() => null);
+      if (hist) {
+        const hPayload = hist.data?.data || hist.data;
+        setHistory(Array.isArray(hPayload) ? hPayload : []);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Confirm failed');
     } finally {
@@ -170,6 +220,12 @@ export const ExcelUpload = () => {
           {(preview.needsMapping || preview.headers) && (
             <div>
               <h3 className="text-sm font-bold mb-2">Column mapping</h3>
+              {preview.needsMapping && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5 mb-2">
+                  Map <strong>customerName</strong> (e.g. Name) and <strong>mobileNumber</strong> (e.g. Contact No.),
+                  then click Confirm import.
+                </p>
+              )}
               <div className="grid md:grid-cols-2 gap-2">
                 {FIELDS.map((field) => (
                   <div key={field} className="flex items-center gap-2 text-xs">
@@ -216,13 +272,21 @@ export const ExcelUpload = () => {
           )}
 
           <div className="flex gap-2">
-            <button onClick={confirm} className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4" /> Confirm import
+            <button
+              type="button"
+              onClick={confirm}
+              disabled={loading || !mappingReady || !campaignId || (!importId && !file)}
+              className="px-4 py-2 bg-emerald-600 text-white rounded-xl text-sm font-bold flex items-center gap-2 disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {loading ? 'Confirming…' : 'Confirm import'}
             </button>
             {importId && (
               <button
+                type="button"
+                disabled={loading}
                 onClick={() => cancelImport(importId)}
-                className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-bold"
+                className="px-4 py-2 bg-gray-100 rounded-xl text-sm font-bold disabled:opacity-50"
               >
                 Cancel
               </button>
