@@ -380,6 +380,16 @@ export const LeadAllocation = () => {
     }
   };
 
+  const resetDistributeForm = () => {
+    setSelectedLeads([]);
+    setAllocateCount('');
+    setShowLeadPicker(false);
+    setTargetCounts({});
+    setCountsManual(false);
+    setPreview(null);
+    setSelectedUsers([]);
+  };
+
   const runAllocate = async () => {
     if (!assertCanDistribute()) return;
     setLoading(true);
@@ -391,11 +401,19 @@ export const LeadAllocation = () => {
           `Adjusted counts (${countsSum}) must equal selected leads (${distributeTotal})`,
         );
       }
+      const planned = distributeTotal;
+      const beforeTotal = poolTotal;
       const res = await allocateLeads(buildPayload());
       const payload = res.data?.data || res.data;
-      setMessage(`Allocated ${payload.allocated || 0} leads`);
-      setPreview(null);
+      const allocated = Number(payload.allocated || 0);
+      const remainingGuess = Math.max(0, beforeTotal - allocated);
+      resetDistributeForm();
       await load();
+      setMessage(
+        allocated > 0
+          ? `Successfully allocated ${allocated} lead${allocated === 1 ? '' : 's'}. About ${remainingGuess} unassigned left. Form cleared for the next batch.`
+          : `No leads were allocated (planned ${planned}). Check telecallers and remaining unassigned.`,
+      );
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Allocation failed');
     } finally {
