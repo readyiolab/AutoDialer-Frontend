@@ -58,6 +58,9 @@ export const LeadAllocation = () => {
   const [transferCount, setTransferCount] = useState('');
   const [transferLeadsList, setTransferLeadsList] = useState([]);
   const [selectedLeads, setSelectedLeads] = useState([]);
+  /** Blank = all unassigned. Number = how many to distribute (backend limit). */
+  const [allocateCount, setAllocateCount] = useState('');
+  const [showLeadPicker, setShowLeadPicker] = useState(false);
   const [targetCounts, setTargetCounts] = useState({});
   const [countsManual, setCountsManual] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -200,20 +203,79 @@ export const LeadAllocation = () => {
     });
     setSelectedUsers([]);
     setSelectedLeads([]);
+    setAllocateCount('');
+    setShowLeadPicker(false);
     setPreview(null);
     setCountsManual(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, isTransfer, fromUserId]);
 
-  const allocatingAllUnassigned = !isTransfer && selectedLeads.length === 0;
-  const distributeTotal = allocatingAllUnassigned
-    ? unassignedTotal || unassigned.length
-    : selectedLeads.length;
+  const poolTotal = unassignedTotal || unassigned.length;
+  const parsedAllocateCount = Number(allocateCount);
+  const hasAllocateCount =
+    !isTransfer &&
+    allocateCount !== '' &&
+    Number.isFinite(parsedAllocateCount) &&
+    parsedAllocateCount > 0;
+  /** Specific lead checkboxes override count/all */
+  const usingLeadPick = !isTransfer && selectedLeads.length > 0;
+  const allocatingByPool = !isTransfer && !usingLeadPick;
+  const distributeTotal = usingLeadPick
+    ? selectedLeads.length
+    : hasAllocateCount
+      ? Math.min(Math.floor(parsedAllocateCount), poolTotal || Math.floor(parsedAllocateCount))
+      : poolTotal;
 
   const leadPool = useMemo(
     () => (selectedLeads.length ? unassigned.filter((l) => selectedLeads.includes(l.id)) : unassigned),
     [selectedLeads, unassigned],
   );
+
+  const quickCountOptions = useMemo(() => {
+    const total = poolTotal;
+    if (!total) return [];
+    const opts = [
+      { label: 'All', value: '' },
+      { label: '25', value: '25' },
+      { label: '50', value: '50' },
+      { label: '100', value: '100' },
+    ];
+    if (total > 100) opts.push({ label: '150', value: '150' });
+    if (total > 150) opts.push({ label: '200', value: '200' });
+    const half = Math.floor(total / 2);
+    if (half >= 10 && !opts.some((o) => o.value === String(half))) {
+      opts.push({ label: `Half (${half})`, value: String(half) });
+    }
+    return opts.filter((o) => o.value === '' || Number(o.value) <= total);
+  }, [poolTotal]);
+
+  const selectAllShownLeads = () => {
+    setSelectedLeads(unassigned.map((l) => l.id));
+    setAllocateCount('');
+    setCountsManual(false);
+    setPreview(null);
+  };
+
+  const clearLeadSelection = () => {
+    setSelectedLeads([]);
+    setCountsManual(false);
+    setPreview(null);
+  };
+
+  const selectFirstNShown = (n) => {
+    const take = Math.max(0, Math.min(Number(n) || 0, unassigned.length));
+    setSelectedLeads(unassigned.slice(0, take).map((l) => l.id));
+    setAllocateCount('');
+    setCountsManual(false);
+    setPreview(null);
+  };
+
+  const applyAllocateCount = (value) => {
+    setAllocateCount(value);
+    setSelectedLeads([]);
+    setCountsManual(false);
+    setPreview(null);
+  };
 
   const equalSplitHint = useMemo(() => {
     if (!selectedUsers.length || !distributeTotal) return null;
@@ -245,9 +307,9 @@ export const LeadAllocation = () => {
   };
 
   useEffect(() => {
-    // Only auto-fill per-user counts when user selected a subset of leads (manual counts).
-    // Allocate-all Equal omits targetCounts so backend spreads every unassigned lead.
-    if (!selectedUsers.length || allocatingAllUnassigned || !distributeTotal) {
+    // Per-user count editors only when picking specific leads from the list.
+    // Pool modes (all / how-many) omit targetCounts so EQUAL uses backend limit/pool.
+    if (!selectedUsers.length || allocatingByPool || !distributeTotal) {
       if (!countsManual) setTargetCounts({});
       return;
     }
@@ -259,14 +321,14 @@ export const LeadAllocation = () => {
       next[id] = base + (idx < rem ? 1 : 0);
     });
     setTargetCounts(next);
-  }, [selectedUsers, distributeTotal, allocatingAllUnassigned, countsManual]);
+  }, [selectedUsers, distributeTotal, allocatingByPool, countsManual]);
 
   const countsSum = Object.values(targetCounts).reduce((s, n) => s + Number(n || 0), 0);
 
   const buildPayload = () => {
     const sendTargetCounts =
       selectedUsers.length > 0 &&
-      !allocatingAllUnassigned &&
+      usingLeadPick &&
       countsSum > 0 &&
       countsSum === distributeTotal;
 
@@ -275,7 +337,8 @@ export const LeadAllocation = () => {
       campaignId: campaignId || undefined,
       teamId: teamId || undefined,
       userIds: selectedUsers.length ? selectedUsers : undefined,
-      leadIds: selectedLeads.length ? selectedLeads : undefined,
+      leadIds: usingLeadPick ? selectedLeads : undefined,
+      limit: allocatingByPool && hasAllocateCount ? distributeTotal : undefined,
       onlyUnassigned: true,
       maxPerUser: maxPerUser ? Number(maxPerUser) : undefined,
       excludeOnBreak: true,
@@ -301,9 +364,9 @@ export const LeadAllocation = () => {
     setError('');
     setMessage('');
     try {
-      if (selectedUsers.length && countsSum !== leadPool.length) {
+      if (usingLeadPick && selectedUsers.length && countsSum !== distributeTotal) {
         throw new Error(
-          `Adjusted counts (${countsSum}) must equal selected leads (${leadPool.length})`,
+          `Adjusted counts (${countsSum}) must equal selected leads (${distributeTotal})`,
         );
       }
       const res = await previewAllocate(buildPayload());
@@ -323,9 +386,9 @@ export const LeadAllocation = () => {
     setError('');
     setMessage('');
     try {
-      if (selectedUsers.length && countsSum !== leadPool.length) {
+      if (usingLeadPick && selectedUsers.length && countsSum !== distributeTotal) {
         throw new Error(
-          `Adjusted counts (${countsSum}) must equal selected leads (${leadPool.length})`,
+          `Adjusted counts (${countsSum}) must equal selected leads (${distributeTotal})`,
         );
       }
       const res = await allocateLeads(buildPayload());
@@ -708,7 +771,7 @@ export const LeadAllocation = () => {
                       <span className="text-slate-400">{u.phone || u.employeeId}</span>
                     </span>
                   </span>
-                  {selectedUsers.includes(u.id) && !allocatingAllUnassigned && (
+                  {selectedUsers.includes(u.id) && !allocatingByPool && (
                     <input
                       type="number"
                       min={0}
@@ -824,7 +887,7 @@ export const LeadAllocation = () => {
             </div>
           )}
 
-          {selectedUsers.length > 0 && !allocatingAllUnassigned && (
+          {selectedUsers.length > 0 && !allocatingByPool && (
             <p
               className={`text-xs font-semibold ${
                 countsSum === distributeTotal ? 'text-emerald-600' : 'text-amber-600'
@@ -833,62 +896,174 @@ export const LeadAllocation = () => {
               Count sum {countsSum} / {distributeTotal} selected leads
             </p>
           )}
-          {selectedUsers.length > 0 && allocatingAllUnassigned && (
+          {selectedUsers.length > 0 && allocatingByPool && (
             <p className="text-xs font-semibold text-emerald-600">
-              Equal / selected method will distribute all {distributeTotal} unassigned leads
+              Will distribute {distributeTotal} lead{distributeTotal === 1 ? '' : 's'}
+              {hasAllocateCount ? ` (of ${poolTotal} unassigned)` : ' (all unassigned)'} equally among
+              checked telecallers
+            </p>
+          )}
+        </div>
+      )}
+
+      {!isTransfer && (
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-[180px] flex-1">
+              <label className="text-xs font-semibold">How many leads to distribute</label>
+              <input
+                type="number"
+                min={1}
+                max={poolTotal || undefined}
+                className="w-full mt-1 border rounded-xl px-3 py-2 text-sm"
+                value={allocateCount}
+                placeholder={poolTotal ? `All ${poolTotal}` : 'All'}
+                onChange={(e) => applyAllocateCount(e.target.value)}
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Leave blank for all {poolTotal || 0} unassigned. No need to tick leads one-by-one.
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-2xl font-black text-teal-700">{distributeTotal}</p>
+              <p className="text-[11px] text-slate-500">planned this run</p>
+            </div>
+          </div>
+          {quickCountOptions.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {quickCountOptions.map((opt) => {
+                const active =
+                  opt.value === ''
+                    ? allocateCount === '' && !usingLeadPick
+                    : allocateCount === opt.value && !usingLeadPick;
+                return (
+                  <button
+                    key={opt.label}
+                    type="button"
+                    onClick={() => applyAllocateCount(opt.value)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${
+                      active
+                        ? 'bg-teal-600 text-white border-teal-600'
+                        : 'bg-white text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {usingLeadPick && (
+            <p className="text-xs text-amber-700 bg-amber-50 rounded-xl px-3 py-2">
+              Using {selectedLeads.length} specifically checked lead(s) — clears the how-many field
+              when you change count chips.
             </p>
           )}
         </div>
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm">
-        <h3 className="text-sm font-bold mb-2">
-          {isTransfer
-            ? `Assigned leads (${transferLeadsList.length})${
-                fromUserId ? ' · filtered by From' : ''
-              }`
-            : unassignedTotal > unassigned.length
-              ? `Unassigned leads (showing ${unassigned.length} of ${unassignedTotal})`
-              : `Unassigned leads (${unassignedTotal || unassigned.length})`}
-        </h3>
-        <div className="max-h-48 overflow-y-auto space-y-1">
-          {(isTransfer ? transferLeadsList : unassigned).map((l) => (
-            <label key={l.id} className="flex items-center gap-2 text-xs border-b border-slate-100 py-1.5">
-              <input
-                type="checkbox"
-                checked={selectedLeads.includes(l.id)}
-                onChange={() => {
-                  setCountsManual(false);
-                  setSelectedLeads((prev) =>
-                    prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id],
-                  );
-                }}
-              />
-              <span className="min-w-0 truncate">
-                {l.customerName} · {l.mobileNumber}
-                {isTransfer && l.assignedTo?.name ? (
-                  <span className="text-slate-400"> · {l.assignedTo.name}</span>
-                ) : null}
-                {isTransfer && l.status ? (
-                  <span className="text-slate-400"> · {l.status}</span>
-                ) : null}
-              </span>
-            </label>
-          ))}
-          {isTransfer && !transferLeadsList.length && (
-            <p className="text-xs text-slate-400 py-2">
-              {fromUserId
-                ? 'No assigned leads for this telecaller in scope'
-                : 'Select a campaign / From telecaller, or no assigned leads found'}
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h3 className="text-sm font-bold">
+            {isTransfer
+              ? `Assigned leads (${transferLeadsList.length})${
+                  fromUserId ? ' · filtered by From' : ''
+                }`
+              : unassignedTotal > unassigned.length
+                ? `Unassigned leads (showing ${unassigned.length} of ${unassignedTotal})`
+                : `Unassigned leads (${unassignedTotal || unassigned.length})`}
+          </h3>
+          {!isTransfer && (
+            <button
+              type="button"
+              className="text-[11px] font-bold text-teal-700"
+              onClick={() => setShowLeadPicker((v) => !v)}
+            >
+              {showLeadPicker ? 'Hide lead list' : 'Pick specific leads (optional)'}
+            </button>
           )}
         </div>
+
+        {!isTransfer && showLeadPicker && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            <button
+              type="button"
+              onClick={selectAllShownLeads}
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 bg-white"
+            >
+              Select all shown ({unassigned.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => selectFirstNShown(hasAllocateCount ? distributeTotal : 50)}
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 bg-white"
+            >
+              Select first {hasAllocateCount ? distributeTotal : Math.min(50, unassigned.length)} shown
+            </button>
+            <button
+              type="button"
+              onClick={clearLeadSelection}
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-200 bg-white"
+            >
+              Clear selection
+            </button>
+          </div>
+        )}
+
+        {(isTransfer || showLeadPicker) && (
+          <div className="max-h-48 overflow-y-auto space-y-1">
+            {(isTransfer ? transferLeadsList : unassigned).map((l) => (
+              <label
+                key={l.id}
+                className="flex items-center gap-2 text-xs border-b border-slate-100 py-1.5"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedLeads.includes(l.id)}
+                  onChange={() => {
+                    setCountsManual(false);
+                    setAllocateCount('');
+                    setSelectedLeads((prev) =>
+                      prev.includes(l.id) ? prev.filter((x) => x !== l.id) : [...prev, l.id],
+                    );
+                  }}
+                />
+                <span className="min-w-0 truncate">
+                  {l.customerName} · {l.mobileNumber}
+                  {isTransfer && l.assignedTo?.name ? (
+                    <span className="text-slate-400"> · {l.assignedTo.name}</span>
+                  ) : null}
+                  {isTransfer && l.status ? (
+                    <span className="text-slate-400"> · {l.status}</span>
+                  ) : null}
+                </span>
+              </label>
+            ))}
+            {isTransfer && !transferLeadsList.length && (
+              <p className="text-xs text-slate-400 py-2">
+                {fromUserId
+                  ? 'No assigned leads for this telecaller in scope'
+                  : 'Select a campaign / From telecaller, or no assigned leads found'}
+              </p>
+            )}
+          </div>
+        )}
+
+        {!isTransfer && !showLeadPicker && (
+          <p className="text-xs text-slate-500">
+            List hidden — use <strong>How many leads</strong> above (e.g. All {poolTotal || 0}, 50,
+            100). Open the list only if you need exact names.
+          </p>
+        )}
+
         <p className="text-[11px] text-slate-400 mt-2">
           {isTransfer
             ? selectedLeads.length
               ? `${selectedLeads.length} selected for transfer (overrides count)`
               : 'Leave unchecked and use Move count, or select specific leads'
-            : `Leave unchecked to allocate all ${distributeTotal} unassigned leads in scope`}
+            : usingLeadPick
+              ? `${selectedLeads.length} specific lead(s) selected`
+              : `Will allocate ${distributeTotal} of ${poolTotal} unassigned (no per-lead ticking needed)`}
         </p>
       </div>
 
