@@ -33,6 +33,7 @@ import { AutomationRules } from './pages/settings/AutomationRules';
 import { BranchList } from './pages/employees/BranchList';
 import { AttendancePage } from './pages/employees/AttendancePage';
 import { AuditLogPage } from './pages/compliance/AuditLogPage';
+import { WhatsAppTemplates } from './pages/communication/WhatsAppTemplates';
 
 const ProtectedRoute = ({ children, permission }) => {
   const { user, loading, hasPermission } = useAuth();
@@ -108,6 +109,7 @@ export default function App() {
           <Route path="call-history" element={<DailyCallingMIS />} />
           <Route path="dispositions" element={<CallingRules />} />
           <Route path="retry-config" element={<CallingRules />} />
+          <Route path="message-templates" element={<WhatsAppTemplates />} />
 
           <Route path="callbacks/today" element={<TodayCallbacks />} />
           <Route path="callbacks/overdue" element={<TodayCallbacks />} />

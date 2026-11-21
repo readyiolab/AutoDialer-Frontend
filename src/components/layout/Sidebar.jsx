@@ -187,6 +187,7 @@ export const Sidebar = ({ onCloseMobile }) => {
         { label: 'Call History', to: '/call-history', permission: ['view_mis', 'call_assigned_leads'] },
         { label: 'Disposition Master', to: '/dispositions', permission: 'manage_settings' },
         { label: 'Retry Configuration', to: '/retry-config', permission: 'manage_settings' },
+        { label: 'Message Templates', to: '/message-templates', permission: 'manage_settings' },
       ],
     },
     {
