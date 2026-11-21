@@ -173,9 +173,10 @@ export const WhatsAppTemplates = () => {
         <div>
           <h2 className="text-xl font-bold text-gray-900">Message Templates</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            WhatsApp / SMS templates for Interested leads. Put{' '}
-            <code className="bg-gray-100 px-1 rounded">{'{link}'}</code> where the
-            telecaller UTM URL should appear.
+            Company message text only — do <strong>not</strong> put personal UTMs here.
+            Put <code className="bg-gray-100 px-1 rounded">{'{link}'}</code> where each
+            telecaller&apos;s personal UTM will fill in. Assign UTM + templates on{' '}
+            <strong>Employees → Share setup</strong>.
           </p>
         </div>
 
@@ -361,8 +362,8 @@ export const WhatsAppTemplates = () => {
             />
             <p className="text-[11px] text-gray-400 mt-1 flex items-start gap-1">
               <MessageSquare className="w-3 h-3 mt-0.5 shrink-0" />
-              Placeholders: {'{link}'} / {'{utm}'} = telecaller UTM, {'{customerName}'} = lead
-              name.
+              {'{link}'} / {'{utm}'} = filled from that telecaller&apos;s personal UTM on
+              Employees. {'{customerName}'} = lead name.
             </p>
           </div>
 
