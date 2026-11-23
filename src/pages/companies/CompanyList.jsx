@@ -24,13 +24,18 @@ export const CompanyList = () => {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
 
-  const load = async () => {
+  const load = async (nextPage = page) => {
     setLoading(true);
     try {
-      const res = await getCompanies({ page: 1, pageSize: 50 });
+      const res = await getCompanies({ page: nextPage, pageSize });
       const payload = res.data?.data || res.data;
-      setData(payload.data || payload || []);
+      const list = payload.data || payload || [];
+      setData(Array.isArray(list) ? list : []);
+      setTotal(payload.total || payload.meta?.total || (Array.isArray(list) ? list.length : 0));
       setError('');
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load companies');
@@ -40,8 +45,9 @@ export const CompanyList = () => {
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -138,6 +144,32 @@ export const CompanyList = () => {
           </tbody>
         </table>
       </div>
+
+      {total > pageSize && (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="text-gray-500">
+            Page {page} of {Math.max(1, Math.ceil(total / pageSize))} · {total} total
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => setPage((p) => p + 1)}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       <Modal isOpen={open} onClose={() => setOpen(false)} title="Create customer company">
         <form onSubmit={submit} className="space-y-3">

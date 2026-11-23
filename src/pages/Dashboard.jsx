@@ -64,6 +64,17 @@ export const Dashboard = () => {
         </div>
       </div>
 
+      <div className="bg-teal-50 border border-teal-200 rounded-2xl px-4 py-3 text-xs text-teal-900 flex flex-wrap gap-x-4 gap-y-1 items-center">
+        <span className="font-bold">Quick start:</span>
+        <Link to="/campaigns" className="underline font-semibold">
+          1) Campaign → add telecallers
+        </Link>
+        <Link to="/leads/allocate" className="underline font-semibold">
+          2) Allocate leads
+        </Link>
+        <span className="font-semibold">3) Telecaller opens Android app</span>
+      </div>
+
       {campaigns.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-3">

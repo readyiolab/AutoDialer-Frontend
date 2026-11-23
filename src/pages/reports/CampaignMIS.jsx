@@ -5,12 +5,16 @@ import { getCampaignRoundsComparison, exportReport } from '../../api/reports';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { StatusBadge } from '../../components/common/StatusBadge';
 
+const PAGE_SIZE = 10;
+
 export const CampaignMIS = () => {
-  const [rows, setRows] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [statsById, setStatsById] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [roundCompare, setRoundCompare] = useState(null);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,25 +23,11 @@ export const CampaignMIS = () => {
       try {
         const res = await getCampaigns();
         const payload = res.data?.data || res.data;
-        const campaigns = payload.data || payload || [];
-        const withStats = await Promise.all(
-          campaigns.map(async (c) => {
-            try {
-              const [sRes, rRes] = await Promise.all([
-                getCampaignStats(c.id),
-                listCampaignRounds(c.id).catch(() => ({ data: [] })),
-              ]);
-              const stats = sRes.data?.data || sRes.data;
-              const rounds = rRes.data?.data || rRes.data || [];
-              return { ...c, stats, rounds: Array.isArray(rounds) ? rounds : [] };
-            } catch {
-              return { ...c, stats: null, rounds: [] };
-            }
-          }),
-        );
+        const list = payload.data || payload || [];
+        const campaignsList = Array.isArray(list) ? list : [];
         if (!cancelled) {
-          setRows(withStats);
-          if (withStats[0]?.id) setSelectedId(withStats[0].id);
+          setCampaigns(campaignsList);
+          if (campaignsList[0]?.id) setSelectedId(campaignsList[0].id);
         }
       } catch (err) {
         if (!cancelled) setError(err.response?.data?.message || 'Failed to load campaign MIS');
@@ -49,6 +39,46 @@ export const CampaignMIS = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!campaigns.length) return;
+    let cancelled = false;
+    const start = (page - 1) * PAGE_SIZE;
+    const visible = campaigns.slice(start, start + PAGE_SIZE);
+    const needIds = visible.map((c) => c.id).filter((id) => !statsById[id]);
+    if (!needIds.length) return;
+
+    (async () => {
+      const entries = await Promise.all(
+        needIds.map(async (id) => {
+          try {
+            const [sRes, rRes] = await Promise.all([
+              getCampaignStats(id),
+              listCampaignRounds(id).catch(() => ({ data: [] })),
+            ]);
+            const stats = sRes.data?.data || sRes.data;
+            const rounds = rRes.data?.data || rRes.data || [];
+            return [id, { stats, rounds: Array.isArray(rounds) ? rounds : [] }];
+          } catch {
+            return [id, { stats: {}, rounds: [] }];
+          }
+        }),
+      );
+      if (cancelled) return;
+      setStatsById((prev) => {
+        const next = { ...prev };
+        entries.forEach(([id, val]) => {
+          next[id] = val;
+        });
+        return next;
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, campaigns]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -81,6 +111,9 @@ export const CampaignMIS = () => {
   };
 
   if (loading) return <LoadingSpinner />;
+
+  const totalPages = Math.max(1, Math.ceil(campaigns.length / PAGE_SIZE));
+  const pageRows = campaigns.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-4">
@@ -118,8 +151,11 @@ export const CampaignMIS = () => {
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => {
-                const active = (c.rounds || []).find((r) => r.status === 'ACTIVE');
+              {pageRows.map((c) => {
+                const extra = statsById[c.id] || {};
+                const rounds = extra.rounds || [];
+                const stats = extra.stats;
+                const active = rounds.find((r) => r.status === 'ACTIVE');
                 return (
                   <tr
                     key={c.id}
@@ -140,16 +176,16 @@ export const CampaignMIS = () => {
                     <td className="p-3">
                       <StatusBadge status={c.status} />
                     </td>
-                    <td className="p-3">{c.stats?.totalLeads ?? c._count?.leads ?? '—'}</td>
-                    <td className="p-3">{c.rounds?.length ?? 0}</td>
+                    <td className="p-3">{stats?.totalLeads ?? c._count?.leads ?? '—'}</td>
+                    <td className="p-3">{rounds.length || '—'}</td>
                     <td className="p-3">{active?.counts?.completionPct ?? '—'}%</td>
-                    <td className="p-3">{c.stats?.convertedLeads ?? '—'}</td>
-                    <td className="p-3">{c.stats ? `${c.stats.conversionRate ?? 0}%` : '—'}</td>
-                    <td className="p-3">{c.stats?.totalCalls ?? c._count?.callRecords ?? '—'}</td>
+                    <td className="p-3">{stats?.convertedLeads ?? '—'}</td>
+                    <td className="p-3">{stats ? `${stats.conversionRate ?? 0}%` : '—'}</td>
+                    <td className="p-3">{stats?.totalCalls ?? c._count?.callRecords ?? '—'}</td>
                   </tr>
                 );
               })}
-              {!rows.length && (
+              {!campaigns.length && (
                 <tr>
                   <td colSpan={8} className="p-6 text-center text-xs text-gray-400">
                     No campaigns yet
@@ -160,6 +196,32 @@ export const CampaignMIS = () => {
           </table>
         </div>
       </div>
+
+      {campaigns.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="text-gray-500">
+            Page {page} of {totalPages} · {campaigns.length} campaigns
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={page >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {roundCompare?.rounds?.length > 0 && (
         <div className="bg-white border rounded-2xl p-4 space-y-2">

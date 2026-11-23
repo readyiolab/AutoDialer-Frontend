@@ -67,6 +67,9 @@ export const EmployeeList = () => {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
   const [form, setForm] = useState(emptyForm);
   const [previewTemplateId, setPreviewTemplateId] = useState('');
 
@@ -102,12 +105,14 @@ export const EmployeeList = () => {
     setLoading(true);
     try {
       const [usersRes, rolesRes, templatesRes] = await Promise.all([
-        getUsers({ page: 1, pageSize: 100, search: search || undefined }),
+        getUsers({ page, pageSize, search: search || undefined }),
         api.get('/settings/roles').catch(() => ({ data: [] })),
         getTemplates('WHATSAPP').catch(() => ({ data: [] })),
       ]);
       const payload = usersRes.data?.data || usersRes.data;
-      setRows(payload.data || payload || []);
+      const list = payload.data || payload || [];
+      setRows(Array.isArray(list) ? list : []);
+      setTotal(payload.total || payload.meta?.total || (Array.isArray(list) ? list.length : 0));
       const rolePayload = rolesRes.data?.data || rolesRes.data || [];
       setRoles(Array.isArray(rolePayload) ? rolePayload : rolePayload.data || []);
       const tplPayload = templatesRes.data?.data || templatesRes.data || [];
@@ -118,11 +123,11 @@ export const EmployeeList = () => {
     } finally {
       setLoading(false);
     }
-  }, [search]);
+  }, [search, page, pageSize]);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
   const openCreate = () => {
     const defaults = brandDefaults(
@@ -417,8 +422,8 @@ export const EmployeeList = () => {
     <div className="crm-page">
       <PageHeader
         icon={Users}
-        title="Employees"
-        subtitle="Create telecallers → Share setup: paste UTM + tick templates"
+        title="Telecallers & team"
+        subtitle="Add telecallers for the Android app. Use Share setup to paste their personal UTM link and tick which WhatsApp/SMS templates they can send."
         actions={
           <>
             <div className="relative">
@@ -428,7 +433,12 @@ export const EmployeeList = () => {
                 placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && load()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    setPage(1);
+                    load();
+                  }
+                }}
               />
             </div>
             <button type="button" onClick={openCreate} className="crm-btn-primary">
@@ -450,6 +460,32 @@ export const EmployeeList = () => {
         emptyTitle="No employees yet"
         emptySubtitle="Add your first telecaller or team member to get started."
       />
+
+      {total > pageSize && (
+        <div className="flex items-center justify-between gap-2 text-xs px-1">
+          <span className="text-slate-500">
+            Page {page} of {Math.max(1, Math.ceil(total / pageSize))} · {total} total
+          </span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={page >= Math.ceil(total / pageSize)}
+              onClick={() => setPage((p) => p + 1)}
+              className="px-3 py-1.5 border rounded-xl font-bold disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       <Modal
         isOpen={open}

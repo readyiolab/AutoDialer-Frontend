@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   listCampaignRounds,
   previewNextRound,
@@ -127,6 +128,10 @@ export const CampaignRoundsPanel = ({ campaignId, telecallers = [] }) => {
   };
 
   const redistribute = async (roundId) => {
+    if (!telecallers.length) {
+      setError('No telecallers on this campaign. Assign telecallers on the campaign team first.');
+      return;
+    }
     if (!selectedUsers.length) {
       setError('Select telecallers before allocate');
       return;
@@ -208,6 +213,23 @@ export const CampaignRoundsPanel = ({ campaignId, telecallers = [] }) => {
         <div className="p-2 bg-emerald-50 text-emerald-700 text-xs rounded-xl">{message}</div>
       )}
 
+      {!telecallers.length && (
+        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="font-bold">No telecallers on this campaign</p>
+            <p className="mt-0.5 text-amber-800/80">
+              Assign telecallers on the campaign team before allocating rounds.
+            </p>
+          </div>
+          <Link
+            to={`/campaigns/${campaignId}`}
+            className="shrink-0 px-3 py-1.5 bg-amber-600 text-white rounded-lg font-bold"
+          >
+            Open campaign team
+          </Link>
+        </div>
+      )}
+
       {activeRound?.counts && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-xs">
           <div className="border rounded-xl p-2">
@@ -270,9 +292,9 @@ export const CampaignRoundsPanel = ({ campaignId, telecallers = [] }) => {
                     <>
                       <button
                         type="button"
-                        disabled={busy}
+                        disabled={busy || !telecallers.length}
                         onClick={() => redistribute(r.id)}
-                        className="text-teal-600 font-bold"
+                        className="text-teal-600 font-bold disabled:opacity-40"
                       >
                         Allocate
                       </button>

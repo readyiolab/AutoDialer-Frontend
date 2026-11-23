@@ -1,7 +1,29 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PhoneCall, Clock, RefreshCw, Save } from 'lucide-react';
 
 export const CallingRules = () => {
+  const location = useLocation();
+  const pageMeta = useMemo(() => {
+    if (location.pathname.includes('/dispositions')) {
+      return {
+        title: 'Disposition Master',
+        subtitle: 'Call outcome labels used by telecallers (full editor coming soon — retry rules below).',
+      };
+    }
+    if (location.pathname.includes('/retry-config')) {
+      return {
+        title: 'Retry Configuration',
+        subtitle: 'Gaps between retries and daily limits for unanswered calls.',
+      };
+    }
+    return {
+      title: 'Calling Rules',
+      subtitle:
+        'Configure inter-call delays, retry intervals for unanswered calls, and permitted calling windows',
+    };
+  }, [location.pathname]);
+
   const [minGap, setMinGap] = useState(5);
   const [maxRetriesPerDay, setMaxRetriesPerDay] = useState(3);
   const [maxTotalRetries, setMaxTotalRetries] = useState(6);
@@ -18,10 +40,8 @@ export const CallingRules = () => {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h2 className="text-xl font-bold text-gray-900">AutoDialler & Retry Rules</h2>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Configure inter-call delays, retry intervals for unanswered calls, and permitted calling windows
-        </p>
+        <h2 className="text-xl font-bold text-gray-900">{pageMeta.title}</h2>
+        <p className="text-xs text-gray-500 mt-0.5">{pageMeta.subtitle}</p>
       </div>
 
       <form onSubmit={handleSave} className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xs space-y-6">

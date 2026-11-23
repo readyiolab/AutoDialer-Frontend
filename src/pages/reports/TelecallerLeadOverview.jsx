@@ -7,13 +7,26 @@ import { PageHeader } from '../../components/common/PageHeader';
 import { Users } from 'lucide-react';
 
 const COLUMNS = [
-  { key: 'total', label: 'Total Leads', bucket: null },
-  { key: 'pending', label: 'Pending', bucket: 'pending' },
-  { key: 'followUp', label: 'Follow-up', bucket: 'followUp' },
+  { key: 'assignedLeads', label: 'Assigned', bucket: null },
+  { key: 'completed', label: 'Completed', bucket: null },
+  { key: 'remaining', label: 'Remaining', bucket: 'pending' },
   { key: 'interested', label: 'Interested', bucket: 'interested' },
-  { key: 'converted', label: 'Converted', bucket: 'converted' },
-  { key: 'rejected', label: 'Rejected', bucket: 'rejected' },
+  { key: 'notInterested', label: 'Not Interested', bucket: 'notInterested' },
+  { key: 'followUp', label: 'Follow-ups', bucket: 'followUp' },
+  { key: 'noAnswer', label: 'No Answer', bucket: 'contacted' },
+  { key: 'totalAttempts', label: 'Total Attempts', bucket: null },
+  { key: 'progress', label: 'Progress', bucket: null },
+  { key: 'currentActivity', label: 'Current Activity', bucket: null },
 ];
+
+const cellValue = (row, key) => {
+  if (key === 'progress') return `${row.completed ?? 0} / ${row.assignedLeads ?? 0}`;
+  if (key === 'currentActivity') {
+    const activity = row.currentActivity;
+    return activity ? `${activity.status}${activity.campaignName ? ` · ${activity.campaignName}` : ''}` : 'Offline';
+  }
+  return row[key] ?? 0;
+};
 
 export const TelecallerLeadOverview = () => {
   const [rows, setRows] = useState([]);
@@ -23,8 +36,8 @@ export const TelecallerLeadOverview = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const load = async () => {
-    setLoading(true);
+  const load = async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     try {
       const res = await getTelecallerLeadOverview({
         campaignId: campaignId || undefined,
@@ -36,7 +49,7 @@ export const TelecallerLeadOverview = () => {
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to load overview');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -51,6 +64,8 @@ export const TelecallerLeadOverview = () => {
 
   useEffect(() => {
     load();
+    const refreshTimer = setInterval(() => load({ silent: true }), 15000);
+    return () => clearInterval(refreshTimer);
   }, [campaignId]);
 
   return (
@@ -95,7 +110,7 @@ export const TelecallerLeadOverview = () => {
         <>
           {totals && (
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-              {COLUMNS.map((col) => (
+              {COLUMNS.filter((col) => !['progress', 'currentActivity'].includes(col.key)).map((col) => (
                 <div key={col.key} className="crm-kpi">
                   <div className="text-xs font-semibold text-slate-500">{col.label}</div>
                   <div className="text-2xl font-bold text-slate-900 mt-2 tabular-nums">
@@ -139,15 +154,17 @@ export const TelecallerLeadOverview = () => {
                         )}
                       </td>
                       {COLUMNS.map((col) => (
-                        <td key={col.key} className="px-4 py-4 text-right tabular-nums">
-                          <Link
-                            to={`/reports/employee/${r.userId}${
-                              col.bucket ? `?bucket=${col.bucket}` : ''
-                            }`}
-                            className="font-semibold text-slate-800 hover:text-teal-700"
-                          >
-                            {r[col.key] ?? 0}
-                          </Link>
+                        <td key={col.key} className={`px-4 py-4 tabular-nums ${col.key === 'currentActivity' ? 'text-left' : 'text-right'}`}>
+                          {col.bucket ? (
+                            <Link
+                              to={`/reports/employee/${r.userId}?bucket=${col.bucket}`}
+                              className="font-semibold text-slate-800 hover:text-teal-700"
+                            >
+                              {cellValue(r, col.key)}
+                            </Link>
+                          ) : (
+                            <span className="font-semibold text-slate-800">{cellValue(r, col.key)}</span>
+                          )}
                         </td>
                       ))}
                     </tr>

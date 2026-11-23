@@ -24,6 +24,9 @@ export const replaceUsers = (id, userIds) =>
 export const getCampaignStats = (id) =>
   api.get(`/campaigns/${id}/stats`);
 
+export const getAllocationReadiness = (id) =>
+  api.get(`/campaigns/${id}/allocation-readiness`);
+
 export const pauseCampaign = (id) =>
   api.patch(`/campaigns/${id}/pause`);
 

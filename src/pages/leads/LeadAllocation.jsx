@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { allocateLeads, getLeads, previewAllocate, transferLeads } from '../../api/leads';
 import { createUser, getUsers } from '../../api/users';
-import { assignUsers, getCampaign, getCampaigns } from '../../api/campaigns';
+import { assignUsers, getAllocationReadiness, getCampaign, getCampaigns } from '../../api/campaigns';
 import { getTeams } from '../../api/teams';
 import { Modal } from '../../components/common/Modal';
 import api from '../../api/axios';
@@ -67,6 +67,7 @@ export const LeadAllocation = () => {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [readiness, setReadiness] = useState(null);
   const [telecallerRoleId, setTelecallerRoleId] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState(emptyTelecallerForm);
@@ -174,7 +175,12 @@ export const LeadAllocation = () => {
 
     if (campaignId) {
       try {
-        const campRes = await getCampaign(campaignId);
+        const [campRes, readyRes] = await Promise.all([
+          getCampaign(campaignId),
+          isTransfer
+            ? Promise.resolve(null)
+            : getAllocationReadiness(campaignId).catch(() => null),
+        ]);
         const camp = campRes.data?.data || campRes.data;
         const assignments = camp?.assignments || [];
         const team = assignments
@@ -188,12 +194,23 @@ export const LeadAllocation = () => {
             role: u.role || { name: 'TELECALLER' },
           }));
         setCampaignTeam(team);
+        if (!isTransfer) {
+          const ready = readyRes?.data?.data || readyRes?.data || null;
+          setReadiness(ready);
+          if (ready && typeof ready.unassignedCount === 'number') {
+            setUnassignedTotal(ready.unassignedCount);
+          }
+        } else {
+          setReadiness(null);
+        }
       } catch (err) {
         setCampaignTeam([]);
+        setReadiness(null);
         setError(err.response?.data?.message || 'Could not load campaign telecallers');
       }
     } else {
       setCampaignTeam([]);
+      setReadiness(null);
     }
   };
 
@@ -210,7 +227,15 @@ export const LeadAllocation = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignId, isTransfer, fromUserId]);
 
-  const poolTotal = unassignedTotal || unassigned.length;
+  const poolTotal =
+    readiness?.unassignedCount != null
+      ? Number(readiness.unassignedCount)
+      : unassignedTotal || unassigned.length;
+  const canAllocate = isTransfer
+    ? true
+    : readiness
+      ? Boolean(readiness.canAllocate)
+      : Boolean(campaignId && (campaignTeam.length || selectedUsers.length) && poolTotal > 0);
   const parsedAllocateCount = Number(allocateCount);
   const hasAllocateCount =
     !isTransfer &&
@@ -346,13 +371,28 @@ export const LeadAllocation = () => {
     };
   };
 
+  const blockerCta = (code) => {
+    if (code === 'NO_TELECALLERS' || code === 'CAMPAIGN_PAUSED') {
+      return { to: `/campaigns/${campaignId}`, label: 'Open campaign' };
+    }
+    if (code === 'NO_UNASSIGNED') {
+      return { to: `/campaigns/${campaignId}`, label: 'Upload leads on campaign' };
+    }
+    return null;
+  };
+
   const assertCanDistribute = () => {
     if (!campaignId) {
       setError('Select a campaign first');
       return false;
     }
+    if (readiness && !readiness.canAllocate) {
+      const first = readiness.blockers?.[0];
+      setError(first?.message || 'Cannot allocate yet — fix the blockers below');
+      return false;
+    }
     if (!selectedUsers.length && !campaignTeam.length) {
-      setError('Add a telecaller first');
+      setError('No telecallers on this campaign. Open the campaign and assign telecallers first.');
       return false;
     }
     return true;
@@ -406,14 +446,28 @@ export const LeadAllocation = () => {
       const res = await allocateLeads(buildPayload());
       const payload = res.data?.data || res.data;
       const allocated = Number(payload.allocated || 0);
-      const remainingGuess = Math.max(0, beforeTotal - allocated);
+      const remaining =
+        payload.remainingUnassigned != null
+          ? Number(payload.remainingUnassigned)
+          : Math.max(0, beforeTotal - allocated);
       resetDistributeForm();
       await load();
-      setMessage(
-        allocated > 0
-          ? `Successfully allocated ${allocated} lead${allocated === 1 ? '' : 's'}. About ${remainingGuess} unassigned left. Form cleared for the next batch.`
-          : `No leads were allocated (planned ${planned}). Check telecallers and remaining unassigned.`,
-      );
+      if (allocated > 0) {
+        setMessage(
+          `Successfully allocated ${allocated} lead${allocated === 1 ? '' : 's'}. ${remaining} unassigned left. Form cleared for the next batch.`,
+        );
+      } else {
+        const reason = payload.reasonCode || payload.message;
+        const skipped = payload.skipped;
+        const skipNote = skipped
+          ? ` (skipped: ${skipped.onBreak || 0} on break, ${skipped.atCap || 0} at cap)`
+          : '';
+        setError(
+          reason
+            ? `${reason}${skipNote}`
+            : `No leads were allocated (planned ${planned}). Check telecallers and remaining unassigned.${skipNote}`,
+        );
+      }
     } catch (err) {
       setError(err.response?.data?.message || err.message || 'Allocation failed');
     } finally {
@@ -601,10 +655,51 @@ export const LeadAllocation = () => {
       {message && (
         <div className="p-3 bg-emerald-50 text-emerald-700 text-xs rounded-xl flex flex-wrap gap-3 items-center justify-between">
           <span>{message}</span>
-          {!isTransfer && message.startsWith('Allocated') && (
-            <Link to="/reports/telecaller-overview" className="font-bold underline">
-              Open overview
+          {!isTransfer && message.startsWith('Successfully allocated') && campaignId && (
+            <Link to={`/campaigns/${campaignId}`} className="font-bold underline">
+              View campaign
             </Link>
+          )}
+        </div>
+      )}
+
+      {!isTransfer && readiness?.blockers?.length > 0 && (
+        <div className="p-3 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-xl space-y-2">
+          <p className="font-bold">Cannot allocate yet</p>
+          {readiness.blockers.map((b) => {
+            const cta = blockerCta(b.code);
+            return (
+              <div key={b.code} className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{b.message}</p>
+                  {b.action && <p className="text-amber-800/80 mt-0.5">{b.action}</p>}
+                </div>
+                {cta && (
+                  <Link
+                    to={cta.to}
+                    className="shrink-0 px-3 py-1.5 bg-amber-600 text-white rounded-lg font-bold"
+                  >
+                    {cta.label}
+                  </Link>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {!isTransfer && campaignId && readiness && (
+        <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 flex flex-wrap gap-x-4 gap-y-1">
+          <span>
+            Unassigned: <strong>{poolTotal}</strong>
+          </span>
+          <span>
+            Telecallers: <strong>{readiness.telecallerCount ?? 0}</strong>
+          </span>
+          {readiness.onBreakCount > 0 && (
+            <span>
+              On break: <strong>{readiness.onBreakCount}</strong>
+            </span>
           )}
         </div>
       )}
@@ -987,9 +1082,11 @@ export const LeadAllocation = () => {
               ? `Assigned leads (${transferLeadsList.length})${
                   fromUserId ? ' · filtered by From' : ''
                 }`
-              : unassignedTotal > unassigned.length
-                ? `Unassigned leads (showing ${unassigned.length} of ${unassignedTotal})`
-                : `Unassigned leads (${unassignedTotal || unassigned.length})`}
+              : `Unassigned leads (${poolTotal})${
+                  unassigned.length < poolTotal
+                    ? ` · list shows ${unassigned.length}`
+                    : ''
+                }`}
           </h3>
           {!isTransfer && (
             <button
@@ -1130,9 +1227,11 @@ export const LeadAllocation = () => {
         <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] lg:left-[260px]">
           <div className="max-w-6xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs text-slate-500 hidden sm:block">
-              {campaignTeam.length || selectedUsers.length || companyOnlyTelecallers.length
-                ? `${Math.max(selectableUsers.length, selectedUsers.length)} telecaller(s) · ${distributeTotal} leads ready`
-                : 'Add a telecaller, then preview and allocate'}
+              {readiness?.blockers?.[0]?.message
+                ? readiness.blockers[0].message
+                : campaignTeam.length || selectedUsers.length || companyOnlyTelecallers.length
+                  ? `${Math.max(selectableUsers.length, selectedUsers.length)} telecaller(s) · ${distributeTotal} leads ready`
+                  : 'Assign telecallers on the campaign, then preview and allocate'}
             </p>
             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <button
@@ -1145,7 +1244,7 @@ export const LeadAllocation = () => {
               </button>
               <button
                 type="button"
-                disabled={loading || !campaignId}
+                disabled={loading || !campaignId || !canAllocate}
                 onClick={runPreview}
                 className="flex-1 sm:flex-none px-4 py-3 border border-slate-200 rounded-xl text-sm font-bold disabled:opacity-50 bg-white"
               >
@@ -1153,7 +1252,7 @@ export const LeadAllocation = () => {
               </button>
               <button
                 type="button"
-                disabled={loading || !campaignId}
+                disabled={loading || !campaignId || !canAllocate}
                 onClick={runAllocate}
                 className="flex-1 sm:flex-none px-5 py-3 bg-teal-600 text-white rounded-xl text-sm font-bold disabled:opacity-50 shadow-md shadow-teal-600/20"
               >

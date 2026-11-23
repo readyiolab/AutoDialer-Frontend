@@ -1,10 +1,25 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { getAutomationRules, updateAutomationRule, runAutomation } from '../../api/automation';
 import { PageHeader } from '../../components/common/PageHeader';
 import { LoadingSpinner } from '../../components/common/LoadingSpinner';
 import { Settings2, Play } from 'lucide-react';
 
 export const AutomationRules = () => {
+  const location = useLocation();
+  const pageMeta = useMemo(() => {
+    if (location.pathname.includes('/notifications')) {
+      return {
+        title: 'Notification Settings',
+        subtitle: 'Alert rules for follow-ups, idle leads, and inactive assignees',
+      };
+    }
+    return {
+      title: 'Automation rules',
+      subtitle: 'Follow-up overdue, idle leads, unanswered streaks, inactive assignees',
+    };
+  }, [location.pathname]);
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -50,8 +65,8 @@ export const AutomationRules = () => {
     <div className="crm-page space-y-4">
       <PageHeader
         icon={Settings2}
-        title="Automation rules"
-        subtitle="Follow-up overdue, idle leads, unanswered streaks, inactive assignees"
+        title={pageMeta.title}
+        subtitle={pageMeta.subtitle}
         actions={
           <button type="button" className="crm-chip" onClick={runNow}>
             <Play className="w-3.5 h-3.5" /> Run now

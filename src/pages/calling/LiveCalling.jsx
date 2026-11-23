@@ -29,8 +29,18 @@ export const LiveCalling = () => {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const tick = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    const t = setInterval(tick, 5000);
+    const onVis = () => {
+      if (document.visibilityState === 'visible') load();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, []);
 
   if (loading) return <LoadingSpinner />;

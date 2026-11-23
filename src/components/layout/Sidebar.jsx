@@ -72,20 +72,6 @@ export const Sidebar = ({ onCloseMobile }) => {
       permission: 'allocate_leads',
     },
     {
-      id: 'telecaller-mgmt',
-      label: 'Telecaller Management',
-      icon: Users,
-      to: '/employees',
-      permission: 'manage_users',
-    },
-    {
-      id: 'employee-mis',
-      label: 'Employee Productivity MIS',
-      icon: BarChart3,
-      to: '/reports/employee',
-      permission: 'view_mis',
-    },
-    {
       id: 'followups',
       label: 'Follow-up Management',
       icon: Clock,
@@ -115,8 +101,17 @@ export const Sidebar = ({ onCloseMobile }) => {
         { label: 'Employee MIS', to: '/reports/employee' },
         { label: 'Telecaller Lead Overview', to: '/reports/telecaller-overview' },
         { label: 'Campaign MIS', to: '/reports/campaign' },
-        { label: 'Branch MIS', to: '/reports/branch' },
-        { label: 'Productivity Analytics', to: '/reports/analytics' },
+        {
+          label: 'Branch MIS',
+          to: '/reports/branch',
+          comingSoon: true,
+          badge: { text: 'Soon', tone: 'orange' },
+        },
+        {
+          label: 'Productivity Analytics',
+          to: '/dashboard',
+          badge: { text: '→ Dashboard', tone: 'mint' },
+        },
       ],
     },
     {
@@ -147,7 +142,7 @@ export const Sidebar = ({ onCloseMobile }) => {
       icon: Users,
       permission: 'manage_users',
       items: [
-        { label: 'Employee Master', to: '/employees', permission: 'manage_users' },
+        { label: 'Telecallers & team', to: '/employees', permission: 'manage_users' },
         { label: 'Employee Devices', to: '/employees/devices', permission: 'manage_users' },
         { label: 'Branch / Team Master', to: '/branches', permission: 'manage_users' },
         { label: 'Attendance', to: '/attendance', permission: 'manage_users' },
@@ -169,7 +164,7 @@ export const Sidebar = ({ onCloseMobile }) => {
           to: '/leads/unworked',
           permission: 'allocate_leads',
         },
-        { label: 'Duplicate Records', to: '/leads/duplicates', permission: 'manage_leads' },
+        { label: 'Duplicate leads', to: '/leads/duplicates', permission: 'manage_leads' },
       ],
     },
     {
@@ -185,8 +180,20 @@ export const Sidebar = ({ onCloseMobile }) => {
         },
         { label: 'Android telecaller app', to: '/autodialer', permission: 'monitor_live' },
         { label: 'Call History', to: '/call-history', permission: ['view_mis', 'call_assigned_leads'] },
-        { label: 'Disposition Master', to: '/dispositions', permission: 'manage_settings' },
-        { label: 'Retry Configuration', to: '/retry-config', permission: 'manage_settings' },
+        {
+          label: 'Disposition Master',
+          to: '/dispositions',
+          permission: 'manage_settings',
+          comingSoon: true,
+          badge: { text: 'Soon', tone: 'orange' },
+        },
+        {
+          label: 'Retry Configuration',
+          to: '/retry-config',
+          permission: 'manage_settings',
+          comingSoon: true,
+          badge: { text: 'Soon', tone: 'orange' },
+        },
         { label: 'Message Templates', to: '/message-templates', permission: 'manage_settings' },
       ],
     },
@@ -195,8 +202,18 @@ export const Sidebar = ({ onCloseMobile }) => {
       label: 'Compliance & Audit',
       icon: ShieldCheck,
       items: [
-        { label: 'Consent Management', to: '/compliance/consent' },
-        { label: 'DND Management', to: '/compliance/dnd' },
+        {
+          label: 'Consent Management',
+          to: '/compliance/consent',
+          comingSoon: true,
+          badge: { text: 'Soon', tone: 'orange' },
+        },
+        {
+          label: 'DND Management',
+          to: '/compliance/dnd',
+          comingSoon: true,
+          badge: { text: 'Soon', tone: 'orange' },
+        },
         { label: 'Access Logs', to: '/compliance/access-logs' },
         { label: 'Audit Trail', to: '/compliance/audit' },
       ],
@@ -297,34 +314,52 @@ export const Sidebar = ({ onCloseMobile }) => {
 
                       <ul className="space-y-0.5">
                         {visibleItems.map((item) => (
-                          <li key={`${group.id}-${item.to}`} className="relative">
+                          <li key={`${group.id}-${item.to}-${item.label}`} className="relative">
                             <span
                               aria-hidden
                               className="absolute -left-4 top-1/2 w-3 h-px bg-neutral-300"
                             />
-                            <NavLink
-                              to={item.to}
-                              onClick={handleNav}
-                              className={({ isActive }) =>
-                                [
-                                  'flex items-center justify-between gap-2 pl-3 pr-2.5 min-h-9 rounded-xl text-[13px] transition-all',
-                                  isActive
-                                    ? 'bg-white text-neutral-900 font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.08)]'
-                                    : 'text-neutral-500 hover:text-neutral-800',
-                                ].join(' ')
-                              }
-                            >
-                              <span className="truncate">{item.label}</span>
-                              {item.badge && (
-                                <span
-                                  className={`shrink-0 text-[10px] font-semibold leading-none px-1.5 py-1 rounded-full ${badgeClass(
-                                    item.badge.tone,
-                                  )}`}
-                                >
-                                  {item.badge.text}
-                                </span>
-                              )}
-                            </NavLink>
+                            {item.comingSoon ? (
+                              <div
+                                className="flex items-center justify-between gap-2 pl-3 pr-2.5 min-h-9 rounded-xl text-[13px] text-neutral-400 cursor-not-allowed"
+                                title="Coming soon"
+                              >
+                                <span className="truncate">{item.label}</span>
+                                {item.badge && (
+                                  <span
+                                    className={`shrink-0 text-[10px] font-semibold leading-none px-1.5 py-1 rounded-full ${badgeClass(
+                                      item.badge.tone,
+                                    )}`}
+                                  >
+                                    {item.badge.text}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <NavLink
+                                to={item.to}
+                                onClick={handleNav}
+                                className={({ isActive }) =>
+                                  [
+                                    'flex items-center justify-between gap-2 pl-3 pr-2.5 min-h-9 rounded-xl text-[13px] transition-all',
+                                    isActive
+                                      ? 'bg-white text-neutral-900 font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.08)]'
+                                      : 'text-neutral-500 hover:text-neutral-800',
+                                  ].join(' ')
+                                }
+                              >
+                                <span className="truncate">{item.label}</span>
+                                {item.badge && (
+                                  <span
+                                    className={`shrink-0 text-[10px] font-semibold leading-none px-1.5 py-1 rounded-full ${badgeClass(
+                                      item.badge.tone,
+                                    )}`}
+                                  >
+                                    {item.badge.text}
+                                  </span>
+                                )}
+                              </NavLink>
+                            )}
                           </li>
                         ))}
                       </ul>
